@@ -1,0 +1,1074 @@
+﻿#pragma kernel CSMain
+
+#define PI 			3.1415926535
+#define MAXFLOAT	99999.99
+
+// change these parameters for better quality (and lower framerate)
+#define MAXDEPTH 	5
+#define NUMSAMPLES  4
+#define ROTATION	true
+
+Texture2D<float4> reader;
+RWTexture2D<float4> writer;
+float iFrame, iTime;
+
+struct Ray
+{
+	float3 origin;
+	float3 direction;
+};
+
+struct IntersectInfo
+{
+	// surface properties
+	float t;
+	float3  p;
+	float3  normal;
+
+	// material properties
+	int   materialType;
+	float3  albedo;
+	float fuzz;
+	float refractionIndex;
+};
+
+IntersectInfo rec;
+IntersectInfo tmprec;
+float3 attenuation;
+
+struct Sphere
+{
+	// sphere properties
+	float3 center;
+	float radius;
+
+	// material
+	int   materialType;
+	float3  albedo;
+	float fuzz;
+	float refractionIndex;
+};
+
+
+bool Sphere_hit(Sphere sphere, Ray ray, float t_min, float t_max)
+{
+	float3 oc = ray.origin - sphere.center;
+	float a = dot(ray.direction, ray.direction);
+	float b = dot(oc, ray.direction);
+	float c = dot(oc, oc) - sphere.radius * sphere.radius;
+
+	float discriminant = b * b - a * c;
+
+	if (discriminant > 0.0f)
+	{
+		float temp = (-b - sqrt(discriminant)) / a;
+
+		if (temp < t_max && temp > t_min)
+		{
+			tmprec.t = temp;
+			tmprec.p = ray.origin + tmprec.t * ray.direction;
+			tmprec.normal = (tmprec.p - sphere.center) / sphere.radius;
+			tmprec.materialType = sphere.materialType;
+			tmprec.albedo = sphere.albedo;
+			tmprec.fuzz = sphere.fuzz;
+			tmprec.refractionIndex = sphere.refractionIndex;
+
+			return true;
+		}
+
+
+		temp = (-b + sqrt(discriminant)) / a;
+
+		if (temp < t_max && temp > t_min)
+		{
+			tmprec.t = temp;
+			tmprec.p = ray.origin + tmprec.t * ray.direction;
+			tmprec.normal = (tmprec.p - sphere.center) / sphere.radius;
+			tmprec.materialType = sphere.materialType;
+			tmprec.albedo = sphere.albedo;
+			tmprec.fuzz = sphere.fuzz;
+			tmprec.refractionIndex = sphere.refractionIndex;
+
+			return true;
+		}
+	}
+
+	return false;
+}
+
+ 
+Sphere sceneList[84];
+
+void initSpheres()
+{
+	sceneList[0].center = float3(0.000000, -1000.000000, 0.000000);
+	sceneList[0].radius = 1000.000000;
+	sceneList[0].materialType = 0;
+	sceneList[0].albedo = float3(0.500000, 0.500000, 0.500000);
+	sceneList[0].fuzz = 1.000000;
+	sceneList[0].refractionIndex = 1.000000;
+
+	sceneList[1].center = float3(-7.995381, 0.200000, -7.478668);
+	sceneList[1].radius = 0.200000;
+	sceneList[1].materialType = 0;
+	sceneList[1].albedo = float3(0.380012, 0.506085, 0.762437);
+	sceneList[1].fuzz = 1.000000;
+	sceneList[1].refractionIndex = 1.000000;
+
+	sceneList[2].center = float3(-7.696819, 0.200000, -5.468978);
+	sceneList[2].radius = 0.200000;
+	sceneList[2].materialType = 0;
+	sceneList[2].albedo = float3(0.596282, 0.140784, 0.017972);
+	sceneList[2].fuzz = 1.000000;
+	sceneList[2].refractionIndex = 1.000000;
+
+	sceneList[3].center = float3(-7.824804, 0.200000, -3.120637);
+	sceneList[3].radius = 0.200000;
+	sceneList[3].materialType = 0;
+	sceneList[3].albedo = float3(0.288507, 0.465652, 0.665070);
+	sceneList[3].fuzz = 1.000000;
+	sceneList[3].refractionIndex = 1.000000;
+
+	sceneList[4].center = float3(-7.132909, 0.200000, -1.701323);
+	sceneList[4].radius = 0.200000;
+	sceneList[4].materialType = 0;
+	sceneList[4].albedo = float3(0.101047, 0.293493, 0.813446);
+	sceneList[4].fuzz = 1.000000;
+	sceneList[4].refractionIndex = 1.000000;
+
+	sceneList[5].center = float3(-7.569523, 0.200000, 0.494554);
+	sceneList[5].radius = 0.200000;
+	sceneList[5].materialType = 0;
+	sceneList[5].albedo = float3(0.365924, 0.221622, 0.058332);
+	sceneList[5].fuzz = 1.000000;
+	sceneList[5].refractionIndex = 1.000000;
+
+	sceneList[6].center = float3(-7.730332, 0.200000, 2.358976);
+	sceneList[6].radius = 0.200000;
+	sceneList[6].materialType = 0;
+	sceneList[6].albedo = float3(0.051231, 0.430547, 0.454086);
+	sceneList[6].fuzz = 1.000000;
+	sceneList[6].refractionIndex = 1.000000;
+
+	sceneList[7].center = float3(-7.892865, 0.200000, 4.753728);
+	sceneList[7].radius = 0.200000;
+	sceneList[7].materialType = 1;
+	sceneList[7].albedo = float3(0.826684, 0.820511, 0.908836);
+	sceneList[7].fuzz = 0.389611;
+	sceneList[7].refractionIndex = 1.000000;
+
+	sceneList[8].center = float3(-7.656691, 0.200000, 6.888913);
+	sceneList[8].radius = 0.200000;
+	sceneList[8].materialType = 0;
+	sceneList[8].albedo = float3(0.346542, 0.225385, 0.180132);
+	sceneList[8].fuzz = 1.000000;
+	sceneList[8].refractionIndex = 1.000000;
+
+
+	sceneList[9].center = float3(-7.217835, 0.200000, 8.203466);
+	sceneList[9].radius = 0.200000;
+	sceneList[9].materialType = 1;
+	sceneList[9].albedo = float3(0.600463, 0.582386, 0.608277);
+	sceneList[9].fuzz = 0.427369;
+	sceneList[9].refractionIndex = 1.000000;
+
+	sceneList[10].center = float3(-5.115232, 0.200000, -7.980404);
+	sceneList[10].radius = 0.200000;
+	sceneList[10].materialType = 0;
+	sceneList[10].albedo = float3(0.256969, 0.138639, 0.080293);
+	sceneList[10].fuzz = 1.000000;
+	sceneList[10].refractionIndex = 1.000000;
+
+	sceneList[11].center = float3(-5.323222, 0.200000, -5.113037);
+	sceneList[11].radius = 0.200000;
+	sceneList[11].materialType = 0;
+	sceneList[11].albedo = float3(0.193093, 0.510542, 0.613362);
+	sceneList[11].fuzz = 1.000000;
+	sceneList[11].refractionIndex = 1.000000;
+
+	sceneList[12].center = float3(-5.460670, 0.200000, -1.166543);
+	sceneList[12].radius = 0.200000;
+	sceneList[12].materialType = 0;
+	sceneList[12].albedo = float3(0.352200, 0.191551, 0.115972);
+	sceneList[12].fuzz = 1.000000;
+	sceneList[12].refractionIndex = 1.000000;
+
+	sceneList[13].center = float3(-5.410681, 0.200000, -3.527741);
+	sceneList[13].radius = 0.200000;
+	sceneList[13].materialType = 0;
+	sceneList[13].albedo = float3(0.352200, 0.191551, 0.115972);	;
+	sceneList[13].fuzz = 1.000000;
+	sceneList[13].refractionIndex = 1.000000;
+
+	sceneList[14].center = float3(-5.457659, 0.200000, 0.363870);
+	sceneList[14].radius = 0.200000;
+	sceneList[14].materialType = 0;
+	sceneList[14].albedo = float3(0.395713, 0.762043, 0.108515);
+	sceneList[14].fuzz = 1.000000;
+	sceneList[14].refractionIndex = 1.000000;
+
+	sceneList[15].center = float3(-5.798715, 0.200000, 2.161684);
+	sceneList[15].radius = 0.200000;
+	sceneList[15].materialType = 2;
+	sceneList[15].albedo = float3(0.000000, 0.000000, 0.000000);
+	sceneList[15].fuzz = 1.000000;
+	sceneList[15].refractionIndex = 1.500000;
+
+	sceneList[16].center = float3(-5.116586, 0.200000, 4.470188);
+	sceneList[16].radius = 0.200000;
+	sceneList[16].materialType = 0;
+	sceneList[16].albedo = float3(0.059444, 0.404603, 0.171767);
+	sceneList[16].fuzz = 1.000000;
+	sceneList[16].refractionIndex = 1.000000;
+
+	sceneList[17].center = float3(-5.273591, 0.200000, 6.795187);
+	sceneList[17].radius = 0.200000;
+	sceneList[17].materialType = 0;
+	sceneList[17].albedo = float3(0.499454, 0.131330, 0.158348);
+	sceneList[17].fuzz = 1.000000;
+	sceneList[17].refractionIndex = 1.000000;
+
+	sceneList[18].center = float3(-5.120286, 0.200000, 8.731398);
+	sceneList[18].radius = 0.200000;
+	sceneList[18].materialType = 0;
+	sceneList[18].albedo = float3(0.267365, 0.136024, 0.300483);
+	sceneList[18].fuzz = 1.000000;
+	sceneList[18].refractionIndex = 1.000000;
+
+	sceneList[19].center = float3(-3.601565, 0.200000, -7.895600);
+	sceneList[19].radius = 0.200000;
+	sceneList[19].materialType = 0;
+	sceneList[19].albedo = float3(0.027752, 0.155209, 0.330428);
+	sceneList[19].fuzz = 1.000000;
+	sceneList[19].refractionIndex = 1.000000;
+
+	sceneList[20].center = float3(-3.735860, 0.200000, -5.163056);
+	sceneList[20].radius = 0.200000;
+	sceneList[20].materialType = 1;
+	sceneList[20].albedo = float3(0.576768, 0.884712, 0.993335);
+	sceneList[20].fuzz = 0.359385;
+	sceneList[20].refractionIndex = 1.000000;
+
+	sceneList[21].center = float3(-3.481116, 0.200000, -3.794556);
+	sceneList[21].radius = 0.200000;
+	sceneList[21].materialType = 0;
+	sceneList[21].albedo = float3(0.405104, 0.066436, 0.009339);
+	sceneList[21].fuzz = 1.000000;
+	sceneList[21].refractionIndex = 1.000000;
+
+	sceneList[22].center = float3(-3.866858, 0.200000, -1.465965);
+	sceneList[22].radius = 0.200000;
+	sceneList[22].materialType = 0;
+	sceneList[22].albedo = float3(0.027570, 0.021652, 0.252798);
+	sceneList[22].fuzz = 1.000000;
+	sceneList[22].refractionIndex = 1.000000;
+
+	sceneList[23].center = float3(-3.168870, 0.200000, 0.553099);
+	sceneList[23].radius = 0.200000;
+	sceneList[23].materialType = 0;
+	sceneList[23].albedo = float3(0.421992, 0.107577, 0.177504);
+	sceneList[23].fuzz = 1.000000;
+	sceneList[23].refractionIndex = 1.000000;
+
+	sceneList[24].center = float3(-3.428552, 0.200000, 2.627547);
+	sceneList[24].radius = 0.200000;
+	sceneList[24].materialType = 1;
+	sceneList[24].albedo = float3(0.974029, 0.653443, 0.571877);
+	sceneList[24].fuzz = 0.312780;
+	sceneList[24].refractionIndex = 1.000000;
+
+	sceneList[25].center = float3(-3.771736, 0.200000, 4.324785);
+	sceneList[25].radius = 0.200000;
+	sceneList[25].materialType = 0;
+	sceneList[25].albedo = float3(0.685957, 0.000043, 0.181270);
+	sceneList[25].fuzz = 1.000000;
+	sceneList[25].refractionIndex = 1.000000;
+
+	sceneList[26].center = float3(-3.768522, 0.200000, 6.384588);
+	sceneList[26].radius = 0.200000;
+	sceneList[26].materialType = 0;
+	sceneList[26].albedo = float3(0.025972, 0.082246, 0.138765);
+	sceneList[26].fuzz = 1.000000;
+	sceneList[26].refractionIndex = 1.000000;
+
+	sceneList[27].center = float3(-3.286992, 0.200000, 8.441148);
+	sceneList[27].radius = 0.200000;
+	sceneList[27].materialType = 0;
+	sceneList[27].albedo = float3(0.186577, 0.560376, 0.367045);
+	sceneList[27].fuzz = 1.000000;
+	sceneList[27].refractionIndex = 1.000000;
+
+	sceneList[28].center = float3(-1.552127, 0.200000, -7.728200);
+	sceneList[28].radius = 0.200000;
+	sceneList[28].materialType = 0;
+	sceneList[28].albedo = float3(0.202998, 0.002459, 0.015350);
+	sceneList[28].fuzz = 1.000000;
+	sceneList[28].refractionIndex = 1.000000;
+
+	sceneList[29].center = float3(-1.360796, 0.200000, -5.346098);
+	sceneList[29].radius = 0.200000;
+	sceneList[29].materialType = 0;
+	sceneList[29].albedo = float3(0.690820, 0.028470, 0.179907);
+	sceneList[29].fuzz = 1.000000;
+	sceneList[29].refractionIndex = 1.000000;
+
+	sceneList[30].center = float3(-1.287209, 0.200000, -3.735321);
+	sceneList[30].radius = 0.200000;
+	sceneList[30].materialType = 0;
+	sceneList[30].albedo = float3(0.345974, 0.672353, 0.450180);
+	sceneList[30].fuzz = 1.000000;
+	sceneList[30].refractionIndex = 1.000000;
+
+	sceneList[31].center = float3(-1.344859, 0.200000, -1.726654);
+	sceneList[31].radius = 0.200000;
+	sceneList[31].materialType = 0;
+	sceneList[31].albedo = float3(0.209209, 0.431116, 0.164732);
+	sceneList[31].fuzz = 1.000000;
+	sceneList[31].refractionIndex = 1.000000;
+
+	sceneList[32].center = float3(-1.974774, 0.200000, 0.183260);
+	sceneList[32].radius = 0.200000;
+	sceneList[32].materialType = 0;
+	sceneList[32].albedo = float3(0.006736, 0.675637, 0.622067);
+	sceneList[32].fuzz = 1.000000;
+	sceneList[32].refractionIndex = 1.000000;
+
+	sceneList[33].center = float3(-1.542872, 0.200000, 2.067868);
+	sceneList[33].radius = 0.200000;
+	sceneList[33].materialType = 0;
+	sceneList[33].albedo = float3(0.192247, 0.016661, 0.010109);
+	sceneList[33].fuzz = 1.000000;
+	sceneList[33].refractionIndex = 1.000000;
+
+	sceneList[34].center = float3(-1.743856, 0.200000, 4.752810);
+	sceneList[34].radius = 0.200000;
+	sceneList[34].materialType = 0;
+	sceneList[34].albedo = float3(0.295270, 0.108339, 0.276513);
+	sceneList[34].fuzz = 1.000000;
+	sceneList[34].refractionIndex = 1.000000;
+
+	sceneList[35].center = float3(-1.955621, 0.200000, 6.493702);
+	sceneList[35].radius = 0.200000;
+	sceneList[35].materialType = 0;
+	sceneList[35].albedo = float3(0.270527, 0.270494, 0.202029);
+	sceneList[35].fuzz = 1.000000;
+	sceneList[35].refractionIndex = 1.000000;
+
+	sceneList[36].center = float3(-1.350449, 0.200000, 8.068503);
+	sceneList[36].radius = 0.200000;
+	sceneList[36].materialType = 1;
+	sceneList[36].albedo = float3(0.646942, 0.501660, 0.573693);
+	sceneList[36].fuzz = 0.346551;
+	sceneList[36].refractionIndex = 1.000000;
+
+	sceneList[37].center = float3(0.706123, 0.200000, -7.116040);
+	sceneList[37].radius = 0.200000;
+	sceneList[37].materialType = 0;
+	sceneList[37].albedo = float3(0.027695, 0.029917, 0.235781);
+	sceneList[37].fuzz = 1.000000;
+	sceneList[37].refractionIndex = 1.000000;
+
+	sceneList[38].center = float3(0.897766, 0.200000, -5.938681);
+	sceneList[38].radius = 0.200000;
+	sceneList[38].materialType = 0;
+	sceneList[38].albedo = float3(0.114934, 0.046258, 0.039647);
+	sceneList[38].fuzz = 1.000000;
+	sceneList[38].refractionIndex = 1.000000;
+
+	sceneList[39].center = float3(0.744113, 0.200000, -3.402960);
+	sceneList[39].radius = 0.200000;
+	sceneList[39].materialType = 0;
+	sceneList[39].albedo = float3(0.513631, 0.335578, 0.204787);
+	sceneList[39].fuzz = 1.000000;
+	sceneList[39].refractionIndex = 1.000000;
+
+	sceneList[40].center = float3(0.867750, 0.200000, -1.311908);
+	sceneList[40].radius = 0.200000;
+	sceneList[40].materialType = 0;
+	sceneList[40].albedo = float3(0.400246, 0.000956, 0.040513);
+	sceneList[40].fuzz = 1.000000;
+	sceneList[40].refractionIndex = 1.000000;
+
+	sceneList[41].center = float3(0.082480, 0.200000, 0.838206);
+	sceneList[41].radius = 0.200000;
+	sceneList[41].materialType = 0;
+	sceneList[41].albedo = float3(0.594141, 0.215068, 0.025718);
+	sceneList[41].fuzz = 1.000000;
+	sceneList[41].refractionIndex = 1.000000;
+
+	sceneList[42].center = float3(0.649692, 0.200000, 2.525103);
+	sceneList[42].radius = 0.200000;
+	sceneList[42].materialType = 1;
+	sceneList[42].albedo = float3(0.602157, 0.797249, 0.614694);
+	sceneList[42].fuzz = 0.341860;
+	sceneList[42].refractionIndex = 1.000000;
+
+	sceneList[43].center = float3(0.378574, 0.200000, 4.055579);
+	sceneList[43].radius = 0.200000;
+	sceneList[43].materialType = 0;
+	sceneList[43].albedo = float3(0.005086, 0.003349, 0.064403);
+	sceneList[43].fuzz = 1.000000;
+	sceneList[43].refractionIndex = 1.000000;
+
+	sceneList[44].center = float3(0.425844, 0.200000, 6.098526);
+	sceneList[44].radius = 0.200000;
+	sceneList[44].materialType = 0;
+	sceneList[44].albedo = float3(0.266812, 0.016602, 0.000853);
+	sceneList[44].fuzz = 1.000000;
+	sceneList[44].refractionIndex = 1.000000;
+
+	sceneList[45].center = float3(0.261365, 0.200000, 8.661150);
+	sceneList[45].radius = 0.200000;
+	sceneList[45].materialType = 0;
+	sceneList[45].albedo = float3(0.150201, 0.007353, 0.152506);
+	sceneList[45].fuzz = 1.000000;
+	sceneList[45].refractionIndex = 1.000000;
+
+	sceneList[46].center = float3(2.814218, 0.200000, -7.751227);
+	sceneList[46].radius = 0.200000;
+	sceneList[46].materialType = 1;
+	sceneList[46].albedo = float3(0.570094, 0.610319, 0.584192);
+	sceneList[46].fuzz = 0.018611;
+	sceneList[46].refractionIndex = 1.000000;
+
+	sceneList[47].center = float3(2.050073, 0.200000, -5.731364);
+	sceneList[47].radius = 0.200000;
+	sceneList[47].materialType = 0;
+	sceneList[47].albedo = float3(0.109886, 0.029498, 0.303265);
+	sceneList[47].fuzz = 1.000000;
+	sceneList[47].refractionIndex = 1.000000;
+
+	sceneList[48].center = float3(2.020130, 0.200000, -3.472627);
+	sceneList[48].radius = 0.200000;
+	sceneList[48].materialType = 0;
+	sceneList[48].albedo = float3(0.216908, 0.216448, 0.221775);
+	sceneList[48].fuzz = 1.000000;
+	sceneList[48].refractionIndex = 1.000000;
+
+	sceneList[49].center = float3(2.884277, 0.200000, -1.232662);
+	sceneList[49].radius = 0.200000;
+	sceneList[49].materialType = 0;
+	sceneList[49].albedo = float3(0.483428, 0.027275, 0.113898);
+	sceneList[49].fuzz = 1.000000;
+	sceneList[49].refractionIndex = 1.000000;
+
+	sceneList[50].center = float3(2.644454, 0.200000, 0.596324);
+	sceneList[50].radius = 0.200000;
+	sceneList[50].materialType = 0;
+	sceneList[50].albedo = float3(0.005872, 0.860718, 0.561933);
+	sceneList[50].fuzz = 1.000000;
+	sceneList[50].refractionIndex = 1.000000;
+
+	sceneList[51].center = float3(2.194283, 0.200000, 2.880603);
+	sceneList[51].radius = 0.200000;
+	sceneList[51].materialType = 0;
+	sceneList[51].albedo = float3(0.452710, 0.824152, 0.045179);
+	sceneList[51].fuzz = 1.000000;
+	sceneList[51].refractionIndex = 1.000000;
+
+	sceneList[52].center = float3(2.281000, 0.200000, 4.094307);
+	sceneList[52].radius = 0.200000;
+	sceneList[52].materialType = 0;
+	sceneList[52].albedo = float3(0.002091, 0.145849, 0.032535);
+	sceneList[52].fuzz = 1.000000;
+	sceneList[52].refractionIndex = 1.000000;
+
+	sceneList[53].center = float3(2.080841, 0.200000, 6.716384);
+	sceneList[53].radius = 0.200000;
+	sceneList[53].materialType = 0;
+	sceneList[53].albedo = float3(0.468539, 0.032772, 0.018071);
+	sceneList[53].fuzz = 1.000000;
+	sceneList[53].refractionIndex = 1.000000;
+
+	sceneList[54].center = float3(2.287131, 0.200000, 8.583242);
+	sceneList[54].radius = 0.200000;
+	sceneList[54].materialType = 2;
+	sceneList[54].albedo = float3(0.000000, 0.000000, 0.000000);
+	sceneList[54].fuzz = 1.000000;
+	sceneList[54].refractionIndex = 1.500000;
+
+	sceneList[55].center = float3(4.329136, 0.200000, -7.497218);
+	sceneList[55].radius = 0.200000;
+	sceneList[55].materialType = 0;
+	sceneList[55].albedo = float3(0.030865, 0.071452, 0.016051);
+	sceneList[55].fuzz = 1.000000;
+	sceneList[55].refractionIndex = 1.000000;
+
+	sceneList[56].center = float3(4.502115, 0.200000, -5.941060);
+	sceneList[56].radius = 0.200000;
+	sceneList[56].materialType = 2;
+	sceneList[56].albedo = float3(0.000000, 0.000000, 0.000000);
+	sceneList[56].fuzz = 1.000000;
+	sceneList[56].refractionIndex = 1.500000;
+
+	sceneList[57].center = float3(4.750631, 0.200000, -3.836759);
+	sceneList[57].radius = 0.200000;
+	sceneList[57].materialType = 0;
+	sceneList[57].albedo = float3(0.702578, 0.084798, 0.141374);
+	sceneList[57].fuzz = 1.000000;
+	sceneList[57].refractionIndex = 1.000000;
+
+	sceneList[58].center = float3(4.082084, 0.200000, -1.180746);
+	sceneList[58].radius = 0.200000;
+	sceneList[58].materialType = 0;
+	sceneList[58].albedo = float3(0.043052, 0.793077, 0.018707);
+	sceneList[58].fuzz = 1.000000;
+	sceneList[58].refractionIndex = 1.000000;
+
+	sceneList[59].center = float3(4.429173, 0.200000, 2.069721);
+	sceneList[59].radius = 0.200000;
+	sceneList[59].materialType = 0;
+	sceneList[59].albedo = float3(0.179009, 0.147750, 0.617371);
+	sceneList[59].fuzz = 1.000000;
+	sceneList[59].refractionIndex = 1.000000;
+
+	sceneList[60].center = float3(4.277152, 0.200000, 4.297482);
+	sceneList[60].radius = 0.200000;
+	sceneList[60].materialType = 0;
+	sceneList[60].albedo = float3(0.422693, 0.011222, 0.211945);
+	sceneList[60].fuzz = 1.000000;
+	sceneList[60].refractionIndex = 1.000000;
+
+	sceneList[61].center = float3(4.012743, 0.200000, 6.225072);
+	sceneList[61].radius = 0.200000;
+	sceneList[61].materialType = 0;
+	sceneList[61].albedo = float3(0.986275, 0.073358, 0.133628);
+	sceneList[61].fuzz = 1.000000;
+	sceneList[61].refractionIndex = 1.000000;
+
+	sceneList[62].center = float3(4.047066, 0.200000, 8.419360);
+	sceneList[62].radius = 0.200000;
+	sceneList[62].materialType = 1;
+	sceneList[62].albedo = float3(0.878749, 0.677170, 0.684995);
+	sceneList[62].fuzz = 0.243932;
+	sceneList[62].refractionIndex = 1.000000;
+
+	sceneList[63].center = float3(6.441846, 0.200000, -7.700798);
+	sceneList[63].radius = 0.200000;
+	sceneList[63].materialType = 1;
+	sceneList[63].albedo = float3(0.309255, 0.342524, 0.489512);
+	sceneList[63].fuzz = 1.000000;
+	sceneList[63].refractionIndex = 1.000000;
+
+	sceneList[64].center = float3(6.047810, 0.200000, -5.519369);
+	sceneList[64].radius = 0.200000;
+	sceneList[64].materialType = 0;
+	sceneList[64].albedo = float3(0.532361, 0.008200, 0.077522);
+	sceneList[64].fuzz = 1.000000;
+	sceneList[64].refractionIndex = 1.000000;
+
+	sceneList[65].center = float3(6.779211, 0.200000, -3.740542);
+	sceneList[65].radius = 0.200000;
+	sceneList[65].materialType = 0;
+	sceneList[65].albedo = float3(0.161234, 0.539314, 0.016667);
+	sceneList[65].fuzz = 1.000000;
+	sceneList[65].refractionIndex = 1.000000;
+
+	sceneList[66].center = float3(6.430776, 0.200000, -1.332107);
+	sceneList[66].radius = 0.200000;
+	sceneList[66].materialType = 0;
+	sceneList[66].albedo = float3(0.641951, 0.661402, 0.326114);
+	sceneList[66].fuzz = 1.000000;
+	sceneList[66].refractionIndex = 1.000000;
+
+	sceneList[67].center = float3(6.476387, 0.200000, 0.329973);
+	sceneList[67].radius = 0.200000;
+	sceneList[67].materialType = 0;
+	sceneList[67].albedo = float3(0.033000, 0.648388, 0.166911);
+	sceneList[67].fuzz = 1.000000;
+	sceneList[67].refractionIndex = 1.000000;
+
+	sceneList[68].center = float3(6.568686, 0.200000, 2.116949);
+	sceneList[68].radius = 0.200000;
+	sceneList[68].materialType = 0;
+	sceneList[68].albedo = float3(0.590952, 0.072292, 0.125672);
+	sceneList[68].fuzz = 1.000000;
+	sceneList[68].refractionIndex = 1.000000;
+
+	sceneList[69].center = float3(6.371189, 0.200000, 4.609841);
+	sceneList[69].radius = 0.200000;
+	sceneList[69].materialType = 1;
+	sceneList[69].albedo = float3(0.870345, 0.753830, 0.933118);
+	sceneList[69].fuzz = 0.233489;
+	sceneList[69].refractionIndex = 1.000000;
+
+	sceneList[70].center = float3(6.371189, 0.200000, 4.609841);
+	sceneList[70].radius = 0.200000;
+	sceneList[70].materialType = 1;
+	sceneList[70].albedo = float3(0.870345, 0.753830, 0.933118);
+	sceneList[70].fuzz = 0.233489;
+	sceneList[70].refractionIndex = 1.000000;
+
+	sceneList[71].center = float3(6.096087, 0.200000, 8.892333);
+	sceneList[71].radius = 0.200000;
+	sceneList[71].materialType = 0;
+	sceneList[71].albedo = float3(0.588587, 0.078723, 0.044928);
+	sceneList[71].fuzz = 1.000000;
+	sceneList[71].refractionIndex = 1.000000;
+
+	sceneList[72].center = float3(8.185763, 0.200000, -7.191109);
+	sceneList[72].radius = 0.200000;
+	sceneList[72].materialType = 1;
+	sceneList[72].albedo = float3(0.989702, 0.886784, 0.540759);
+	sceneList[72].fuzz = 0.104229;
+	sceneList[72].refractionIndex = 1.000000;
+
+	sceneList[73].center = float3(8.411960, 0.200000, -5.285309);
+	sceneList[73].radius = 0.200000;
+	sceneList[73].materialType = 0;
+	sceneList[73].albedo = float3(0.139604, 0.022029, 0.461688);
+	sceneList[73].fuzz = 1.000000;
+	sceneList[73].refractionIndex = 1.000000;
+
+	sceneList[74].center = float3(8.047109, 0.200000, -3.427552);
+	sceneList[74].radius = 0.200000;
+	sceneList[74].materialType = 1;
+	sceneList[74].albedo = float3(0.815002, 0.631228, 0.806757);
+	sceneList[74].fuzz = 0.150782;
+	sceneList[74].refractionIndex = 1.000000;
+
+	sceneList[75].center = float3(8.119639, 0.200000, -1.652587);
+	sceneList[75].radius = 0.200000;
+	sceneList[75].materialType = 0;
+	sceneList[75].albedo = float3(0.177852, 0.429797, 0.042251);
+	sceneList[75].fuzz = 1.000000;
+	sceneList[75].refractionIndex = 1.000000;
+
+	sceneList[76].center = float3(8.818120, 0.200000, 0.401292);
+	sceneList[76].radius = 0.200000;
+	sceneList[76].materialType = 0;
+	sceneList[76].albedo = float3(0.065416, 0.087694, 0.040518);
+	sceneList[76].fuzz = 1.000000;
+	sceneList[76].refractionIndex = 1.000000;
+
+	sceneList[77].center = float3(8.754155, 0.200000, 2.152549);
+	sceneList[77].radius = 0.200000;
+	sceneList[77].materialType = 0;
+	sceneList[77].albedo = float3(0.230659, 0.035665, 0.435895);
+	sceneList[77].fuzz = 1.000000;
+	sceneList[77].refractionIndex = 1.000000;
+
+	sceneList[78].center = float3(8.595298, 0.200000, 4.802001);
+	sceneList[78].radius = 0.200000;
+	sceneList[78].materialType = 0;
+	sceneList[78].albedo = float3(0.188493, 0.184933, 0.040215);
+	sceneList[78].fuzz = 1.000000;
+	sceneList[78].refractionIndex = 1.000000;
+
+	sceneList[79].center = float3(8.036216, 0.200000, 6.739752);
+	sceneList[79].radius = 0.200000;
+	sceneList[79].materialType = 0;
+	sceneList[79].albedo = float3(0.023192, 0.364636, 0.464844);
+	sceneList[79].fuzz = 1.000000;
+	sceneList[79].refractionIndex = 1.000000;
+
+	sceneList[80].center = float3(8.256561, 0.200000, 8.129115);
+	sceneList[80].radius = 0.200000;
+	sceneList[80].materialType = 0;
+	sceneList[80].albedo = float3(0.002612, 0.598319, 0.435378);
+	sceneList[80].fuzz = 1.000000;
+	sceneList[80].refractionIndex = 1.000000;
+
+	sceneList[81].center = float3(0.000000, 1.000000, 0.000000);
+	sceneList[81].radius = 1.000000;
+	sceneList[81].materialType = 2;
+	sceneList[81].albedo = float3(0.000000, 0.000000, 0.000000);
+	sceneList[81].fuzz = 1.000000;
+	sceneList[81].refractionIndex = 1.500000;
+
+	sceneList[82].center = float3(-4.000000, 1.000000, 0.000000);
+	sceneList[82].radius = 1.000000;
+	sceneList[82].materialType = 0;
+	sceneList[82].albedo = float3(0.400000, 0.200000, 0.100000);
+	sceneList[82].fuzz = 1.000000;
+	sceneList[82].refractionIndex = 1.000000;
+
+	sceneList[83].center = float3(4.000000, 1.000000, 0.000000);
+	sceneList[83].radius = 1.000000;
+	sceneList[83].materialType = 1;
+	sceneList[83].albedo = float3(0.700000, 0.600000, 0.500000);
+	sceneList[83].fuzz = 0.000000;
+	sceneList[83].refractionIndex = 1.000000;
+} 
+
+float schlick(float cos_theta, float n2)
+{
+	const float n1 = 1.0f;  // refraction index for air
+
+	float r0s = (n1 - n2) / (n1 + n2);
+	float r0 = r0s * r0s;
+
+	return r0 + (1.0f - r0) * pow((1.0f - cos_theta), 5.0f);
+}
+
+float3 refracted;
+
+bool refractVec(float3 v, float3 n, float ni_over_nt)
+{
+	float3 uv = normalize(v);
+
+	float dt = dot(uv, n);
+
+	float discriminant = 1.0 - ni_over_nt * ni_over_nt * (1.0f - dt * dt);
+
+	if (discriminant > 0.0f)
+	{
+		refracted = ni_over_nt * (uv - n * dt) - n * sqrt(discriminant);
+
+		return true;
+	}
+	else
+		return false;
+}
+
+
+float3 reflectVec(float3 v, float3 n)
+{
+	return v - 2.0f * dot(v, n) * n;
+}
+
+ 
+float2 randState;
+
+
+float hash(const float n)
+{
+	return frac(sin(n)*43758.54554213);
+}
+
+
+
+float rand2D()
+{
+	randState.x = frac(sin(dot(randState.xy, float2(12.9898, 78.233))) * 43758.5453);
+	randState.y = frac(sin(dot(randState.xy, float2(12.9898, 78.233))) * 43758.5453);;
+
+	return randState.x;
+}
+
+float3 random_in_unit_sphere()
+{
+	float phi = 2.0 * PI * rand2D();
+	float cosTheta = 2.0 * rand2D() - 1.0;
+	float u = rand2D();
+
+	float theta = acos(cosTheta);
+	float r = pow(abs(u), 1.0 / 3.0);
+
+	float x = r * sin(theta) * cos(phi);
+	float y = r * sin(theta) * sin(phi);
+	float z = r * cos(theta);
+
+	return float3(x, y, z);
+}
+ 
+float3 random_in_unit_disk()
+{
+	float spx = 2.0 * rand2D() - 1.0;
+	float spy = 2.0 * rand2D() - 1.0;
+
+	float r, phi;
+
+
+	if (spx > -spy)
+	{
+		if (spx > spy)
+		{
+			r = spx;
+			phi = spy / spx;
+		}
+		else
+		{
+			r = spy;
+			phi = 2.0 - spx / spy;
+		}
+	}
+	else
+	{
+		if (spx < spy)
+		{
+			r = -spx;
+			phi = 4.0f + spy / spx;
+		}
+		else
+		{
+			r = -spy;
+
+			if (spy != 0.0)
+				phi = 6.0 - spx / spy;
+			else
+				phi = 0.0;
+		}
+	}
+
+	phi *= PI / 4.0;
+
+
+	return float3(r * cos(phi), r * sin(phi), 0.0f);
+}
+
+
+struct Camera
+{
+	float3 origin;
+	float3 lowerLeftCorner;
+	float3 horizontal;
+	float3 vertical;
+	float3 u, v, w;
+	float lensRadius;
+};
+
+ 
+Camera Camera_init( Camera camera, float3 lookfrom, float3 lookat, float3 vup, float vfov, float aspect, float aperture, float focusDist)
+{
+	camera.lensRadius = aperture / 2.0;
+
+	float theta = vfov * PI / 180.0;
+	float halfHeight = tan(theta / 2.0);
+	float halfWidth = aspect * halfHeight;
+
+	camera.origin = lookfrom;
+
+	camera.w = normalize(lookfrom - lookat);
+	camera.u = normalize(cross(vup, camera.w));
+	camera.v = cross(camera.w, camera.u);
+
+	camera.lowerLeftCorner = camera.origin - halfWidth * focusDist * camera.u
+		- halfHeight * focusDist * camera.v
+		- focusDist * camera.w;
+
+	camera.horizontal = 2.0 * halfWidth  * focusDist * camera.u;
+	camera.vertical = 2.0 * halfHeight * focusDist * camera.v;
+	return camera;
+}
+
+
+Ray Camera_getRay(Camera camera, float s, float t)
+{
+	float3 rd = camera.lensRadius * random_in_unit_disk();
+	float3 offset = camera.u * rd.x + camera.v * rd.y;
+
+	Ray ray;
+
+	ray.origin = camera.origin + offset;
+	ray.direction = camera.lowerLeftCorner + s * camera.horizontal + t * camera.vertical - camera.origin - offset;
+
+	return ray;
+}
+
+
+#define LAMBERT    0
+#define METAL      1
+#define DIELECTRIC 2
+
+Ray wi;
+
+bool Material_bsdf(IntersectInfo isectInfo, Ray wo)
+{	
+	int materialType = isectInfo.materialType;
+
+	if (materialType == LAMBERT)
+	{
+		float3 target = isectInfo.p + isectInfo.normal + random_in_unit_sphere();
+
+		wi.origin = isectInfo.p;
+		wi.direction = target - isectInfo.p;
+
+		attenuation = isectInfo.albedo;
+
+		return true;
+	}
+	else
+		if (materialType == METAL)
+		{
+			float fuzz = isectInfo.fuzz;
+
+			float3 reflected = reflectVec(normalize(wo.direction), isectInfo.normal);
+
+			wi.origin = isectInfo.p;
+			wi.direction = reflected + fuzz * random_in_unit_sphere();
+
+			attenuation = isectInfo.albedo;
+
+			return (dot(wi.direction, isectInfo.normal) > 0.0f);
+		}
+		else
+			if (materialType == DIELECTRIC)
+			{
+				float3 outward_normal;
+				float3 reflected = reflectVec(wo.direction, isectInfo.normal);
+				refracted = float3(0.0f, 0.0f, 0.0f);
+				float ni_over_nt;
+
+				attenuation = float3(1.0f, 1.0f, 1.0f);
+				
+				float reflect_prob;
+				float cosine;
+
+				float rafractionIndex = isectInfo.refractionIndex;
+
+				if (dot(wo.direction, isectInfo.normal) > 0.0f)
+				{
+					outward_normal = -isectInfo.normal;
+					ni_over_nt = rafractionIndex;
+
+					cosine = dot(wo.direction, isectInfo.normal) / length(wo.direction);
+					cosine = sqrt(1.0f - rafractionIndex * rafractionIndex * (1.0f - cosine * cosine));
+				}
+				else
+				{
+					outward_normal = isectInfo.normal;
+					ni_over_nt = 1.0f / rafractionIndex;
+					cosine = -dot(wo.direction, isectInfo.normal) / length(wo.direction);
+				}
+				if (refractVec(wo.direction, outward_normal, ni_over_nt))
+					reflect_prob = schlick(cosine, rafractionIndex);
+				else
+					reflect_prob = 1.0f;
+				if (rand2D() < reflect_prob)
+				{
+					wi.origin = isectInfo.p;
+					wi.direction = reflected;
+				}
+				else
+				{
+					wi.origin = isectInfo.p;
+					wi.direction = refracted;
+				}
+
+				return true;
+			}
+
+	return false;
+}
+
+
+bool intersectScene(Ray ray, float t_min, float t_max)
+{
+	bool hit_anything = false;
+	float closest_so_far = t_max;
+
+	for (int i = 0; i < 84; i++)	// debug
+	{
+		Sphere sphere = sceneList[i];
+
+		if (Sphere_hit(sphere, ray, t_min, closest_so_far))
+		{
+			hit_anything = true;
+			closest_so_far = tmprec.t;
+			rec = tmprec;
+		}
+	}
+
+	return hit_anything;
+}
+
+
+float3 skyColor(Ray ray)
+{
+	float3 unit_direction = normalize(ray.direction);
+	float t = 0.5 * (unit_direction.y + 1.0);
+
+	return (1.0 - t) * float3(1.0, 1.0, 1.0) + t * float3(0.5, 0.7, 1.0);
+}
+
+
+float3 radiance(Ray ray)
+{
+	float3 col = float3(1.0, 1.0, 1.0);
+
+	for (int i = 0; i < MAXDEPTH; i++)
+	{
+		if (intersectScene(ray, 0.001, MAXFLOAT))
+		{
+			 
+			wi.origin = float3(0.0f, 0.0f, 0.0f);
+			wi.direction= float3(0.0f, 0.0f, 0.0f);
+	
+			attenuation = float3(1.0f, 1.0f, 1.0f);
+
+			bool wasScattered = Material_bsdf(rec, ray);
+
+			ray.origin = wi.origin;
+			ray.direction = wi.direction;
+
+			if (wasScattered)
+				col *= attenuation;
+			else
+			{
+				col *= float3(0.0f, 0.0f, 0.0f);
+				break;
+			}
+		}
+		else
+		{
+			col *= skyColor(ray);
+			break;
+		}
+	}
+
+	return col;
+}
+ 
+
+[numthreads(8, 8, 1)]
+void CSMain(uint2 id : SV_DispatchThreadID)	 
+{	
+	rec.t = 1.0f;
+	rec.p = float3(1.0f, 1.0f, 1.0f);
+	rec.normal = float3(1.0f, 1.0f, 1.0f);
+	rec.materialType = 0;
+	rec.albedo = float3(1.0f, 1.0f, 1.0f);
+	rec.fuzz = 1.0f;
+	rec.refractionIndex = 1.0f;
+
+	tmprec.t = 1.0f;
+	tmprec.p = float3(1.0f, 1.0f, 1.0f);
+	tmprec.normal = float3(1.0f, 1.0f, 1.0f);
+	tmprec.materialType = 0;
+	tmprec.albedo = float3(1.0f, 1.0f, 1.0f);
+	tmprec.fuzz = 1.0f;
+	tmprec.refractionIndex = 1.0f;
+
+	float2 iResolution = float2(1024, 1024);
+	float2 fragCoord = float2(id.x, id.y);
+	initSpheres();
+
+	float3 lookfrom = float3(13.0, 2.0, 3.0);
+	const float3 lookat = float3(0.0, 0.0, 0.0);
+	float distToFocus = 10.0;
+	float aperture = 0.1;
+
+	if (ROTATION)
+	{
+		float angle = iTime / 2.0;
+		float4x4 rotationMatrix = float4x4(cos(angle), 0.0, sin(angle), 0.0,
+			0.0, 1.0, 0.0, 0.0,
+			-sin(angle), 0.0, cos(angle), 0.0,
+			0.0, 0.0, 0.0, 1.0);
+		float4 un = float4(lookfrom, 1.0);
+		lookfrom = mul(rotationMatrix,un).xyz;
+	}
+
+	Camera camera;
+	camera=Camera_init(camera, lookfrom, lookat, float3(0.0f, 1.0f, 0.0f), 20.0f, float(iResolution.x) / float(iResolution.y), aperture, distToFocus);
+
+
+	randState = fragCoord.xy / iResolution.xy;
+
+	float3 col = float3(0.0f, 0.0f, 0.0f);
+
+	for (int s = 0; s < NUMSAMPLES; s++)
+	{
+		float u = float(fragCoord.x + rand2D()) / float(iResolution.x);
+		float v = float(fragCoord.y + rand2D()) / float(iResolution.y);
+
+		Ray r = Camera_getRay(camera, u, v);
+		col += radiance(r);
+	}
+
+	col /= float(NUMSAMPLES);
+	col = float3(sqrt(col[0]), sqrt(col[1]), sqrt(col[2]));
+
+	writer[id] = float4(col, 1.0f); 
+}
